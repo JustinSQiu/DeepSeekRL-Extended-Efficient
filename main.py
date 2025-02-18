@@ -423,7 +423,11 @@ def parse_args():
     parser.add_argument("--kl_weight_beta", type=float, default=0.04, help="KL penalty weight")
     parser.add_argument("--seed", type=int, default=7111994, help="Random seed")
 
-    parser.add_argument("--freeze_first_layer", type=int, default=0, help="Freeze the first layer")
+    parser.add_argument("--layer_freezing", type=int, default=0, help="Freeze the given layers")
+    # 0: no freezing
+    # 1: only finetune first five
+    # 2: only finetune last five
+    # 3: only finetune last
 
     args = parser.parse_args()
     return args
@@ -452,15 +456,50 @@ if __name__ == "__main__":
     model.to('cuda')
     base_model.to('cuda')
 
-    if args.freeze_first_layer:
-        print('FREEZING')
+    total_layers = model.config.num_hidden_layers if hasattr(model.config, "num_hidden_layers") else 28
+
+    if args.layer_freezing == 1:
+        print("Freezing all except the first five layers")
         for param in model.parameters():
             param.requires_grad = False
-
-        # Unfreeze parameters for the first transformer layer (layer 0)
         for name, param in model.named_parameters():
-            if name.startswith("model.layers.0"):
-                param.requires_grad = True
+            if name.startswith("model.layers."):
+                parts = name.split('.')
+                try:
+                    layer_index = int(parts[2])
+                    if layer_index < 5:
+                        param.requires_grad = True
+                except ValueError:
+                    pass
+    elif args.layer_freezing == 2:
+        print("Freezing all except the last five layers")
+        for param in model.parameters():
+            param.requires_grad = False
+        for name, param in model.named_parameters():
+            if name.startswith("model.layers."):
+                parts = name.split('.')
+                try:
+                    layer_index = int(parts[2])
+                    if layer_index >= total_layers - 5:
+                        param.requires_grad = True
+                except ValueError:
+                    pass
+    elif args.layer_freezing == 3:
+        print("Freezing all except the last layer")
+        for param in model.parameters():
+            param.requires_grad = False
+        for name, param in model.named_parameters():
+            if name.startswith("model.layers."):
+                parts = name.split('.')
+                try:
+                    layer_index = int(parts[2])
+                    if layer_index == total_layers - 1:
+                        param.requires_grad = True
+                except ValueError:
+                    pass
+    else:
+        print("No layer freezing applied")
+
 
 
     ## Set which data set 

@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=r1_train_freeze
-#SBATCH --output=slurm_output_freeze_first_layer.txt
+#SBATCH --job-name=r1_train_3
+#SBATCH --output=slurm_output_3.txt
 #SBATCH --partition=p_nlp
 #SBATCH --gpus=1
 #SBATCH --cpus-per-task=4
@@ -18,5 +18,7 @@ python --version
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-python main.py --output_dir "final1" --verbose --freeze_first_layer 1
+python main.py --output_dir "output_3" --verbose --layer_freezing 3
 # python plotter.py --log_dir "final1"
+
+# replace: slurm output, job name, freeze tag, output dir

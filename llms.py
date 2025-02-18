@@ -32,5 +32,16 @@ def get_llm_tokenizer(model_name: str, device: str) -> tuple[PreTrainedModel, Pr
     model.config.pad_token_id = tokenizer.pad_token_id
 
     model.config.use_cache = False
+
+    # for name, param in model.named_parameters():
+    #     print(name)
+
+    # for name, module in model.named_modules():
+    #     print(name)
+
     
     return model, tokenizer
+
+if __name__ == "__main__":
+    pass
+    # model, tokenizer = get_llm_tokenizer('Qwen/Qwen2.5-1.5B-Instruct', 'cuda')
