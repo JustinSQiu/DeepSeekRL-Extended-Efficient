@@ -133,6 +133,7 @@ def generate_completions(
         completions_text: List of decoded completion texts
         prompt_text: The full formatted prompt text
     """
+    tokenizer.padding_side = "left"
     # 1. Prepare prompting
     prompt = [
         {'role': 'system', 'content': train_loader.system_prompt},
@@ -396,7 +397,7 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, default="output", help="Directory to save outputs")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument("--save_steps", type=int, default=100, help="Save model every N steps")
-    parser.add_argument("--eval_iterations", type=int, default=20, help="Number of iterations for evaluation")
+    parser.add_argument("--eval_iterations", type=int, default=50, help="Number of iterations for evaluation")
 
     # Optimization hyperparameters
     parser.add_argument("--learning_rate", type=float, default=5e-6, help="Learning rate")
@@ -413,7 +414,7 @@ def parse_args():
 
     # Generation parameters
     parser.add_argument("--temperature", type=float, default=0.9, help="Sampling temperature")
-    parser.add_argument("--num_chains", type=int, default=16, help="Number of parallel generation chains")
+    parser.add_argument("--num_chains", type=int, default=8, help="Number of parallel generation chains")
     parser.add_argument("--max_prompt_length", type=int, default=256, help="Maximum prompt length")
     parser.add_argument("--max_completion_length", type=int, default=786, help="Maximum completion length")
 
@@ -421,6 +422,8 @@ def parse_args():
     parser.add_argument("--num_train_iters", type=int, default=1000, help="Number of training iterations")
     parser.add_argument("--kl_weight_beta", type=float, default=0.04, help="KL penalty weight")
     parser.add_argument("--seed", type=int, default=7111994, help="Random seed")
+
+    parser.add_argument("--freeze_first_layer", type=int, default=0, help="Freeze the first layer")
 
     args = parser.parse_args()
     return args
@@ -445,6 +448,20 @@ if __name__ == "__main__":
     ## Set which model to train 
     model, tokenizer = llms.get_llm_tokenizer(args.model_name, device)
     base_model, _ = llms.get_llm_tokenizer(args.model_name, device)
+
+    model.to('cuda')
+    base_model.to('cuda')
+
+    if args.freeze_first_layer:
+        print('FREEZING')
+        for param in model.parameters():
+            param.requires_grad = False
+
+        # Unfreeze parameters for the first transformer layer (layer 0)
+        for name, param in model.named_parameters():
+            if name.startswith("model.layers.0"):
+                param.requires_grad = True
+
 
     ## Set which data set 
     train_loader, test_loader = rldatasets.get_dataloaders(args.dataset_name)
@@ -492,7 +509,7 @@ if __name__ == "__main__":
     for round_num in tqdm(range(args.num_train_iters), desc="Training Progress"):
     
         # Evaluate on test set every so often 
-        if round_num % args.eval_iterations == 0:
+        if round_num % args.eval_iterations == 0 and round_num != 0:
             eval_metrics, eval_accuracy = eval_on_test_set(
                 model=model,
                 tokenizer=tokenizer, 

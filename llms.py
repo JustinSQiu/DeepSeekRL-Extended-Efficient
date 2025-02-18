@@ -23,11 +23,14 @@ def get_llm_tokenizer(model_name: str, device: str) -> tuple[PreTrainedModel, Pr
         model_name,
         torch_dtype=torch.bfloat16,
         attn_implementation="flash_attention_2",
-        device_map=None, 
+        device_map="auto", 
     ).to(device)
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.padding_side = "left"
     tokenizer.pad_token = tokenizer.eos_token
     model.config.pad_token_id = tokenizer.pad_token_id
+
+    model.config.use_cache = False
     
     return model, tokenizer
