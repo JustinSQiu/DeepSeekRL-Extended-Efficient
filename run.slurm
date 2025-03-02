@@ -1,14 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=r1_train
-#SBATCH --output=slurm_output_inversion.txt
+#SBATCH --output=slurm_output/slurm_output_rref.txt
 #SBATCH --partition=p_nlp
 #SBATCH --gpus=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=128GB
 #SBATCH --constraint=48GBgpu
 
-source /nlp/data/jsq/deepseek/bin/activate
-which python
+source /nlp/data/jsq/deepseekv2/bin/activate
 
 module load cuda/11.7
 
@@ -20,7 +19,7 @@ python --version
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-python main.py --dataset_name "matrix_inversion" --evaluator "matrix_inversion" --output_dir "output_matrix_inv" --num_train_iters 50 --verbose
+python main.py --dataset_name "matrix_RREF" --evaluator "matrix_RREF" --output_dir "output_matrix_RREF" --num_train_iters 50 --eval_iterations 10 --verbose
 
 # python plotter.py --log_dir "final1"
 

@@ -180,67 +180,182 @@ class GSM8kEvaluator(RewardEvaluator):
             'xml_count': reward_scores[4].item()
         }
 
-class MatrixInversionEvaluator(RewardEvaluator):
-    """ Evaluator for matrix inversion tasks. The evaluator parses the generated answer to extract the inverse and compares it to the ground truth. If the error is below a tolerance, a reward is given. """
-    
+
+class MatrixRREFEvaluator(RewardEvaluator):
+    """ Evaluator for matrix Gaussian elimination tasks.
+
+    The evaluator parses the generated answer, which should be formatted as:
+
+      <think>
+      ...internal computation steps...
+      </think>
+      <answer>
+      ...the computed RREF (as a Python list of lists)...
+      </answer>
+
+    It then compares the predicted RREF with the ground truth. In addition,
+    it verifies that the output adheres to the expected format.
+    """
+
     def __init__(self, tol: float = 1e-3):
         self.tol = tol  # tolerance for numerical error
+        self.num_reward_functions = 5
 
-    def _parse_inverse(self, text: str) -> any:
+    def _extract_answer(self, text: str) -> str:
+        """Extract answer from <answer> tags."""
         try:
-            start = text.index("<inverse>") + len("<inverse>")
-            end = text.index("</inverse>")
-            matrix_str = text[start:end].strip()
-            # Assumes the inverse is formatted as a Python list of lists.
-            parsed_matrix = eval(matrix_str)
-            return parsed_matrix
+            answer = text.split("<answer>")[-1].split("</answer>")[0]
+            return answer.strip()
         except Exception:
-            return None
+            return ""
+    
+    def _extract_think(self, text: str) -> str:
+        """Extract think block from <think> tags."""
+        try:
+            think = text.split("<think>")[-1].split("</think>")[0]
+            return think.strip()
+        except Exception:
+            return ""
+
+    def _correctness_reward(self, completions, answer) -> List[float]:
+        """Reward for correct matrix Gaussian elimination."""
+        rewards = []
+        for i, completion in enumerate(completions):
+            text = completion[0]['content']
+            pred_str = self._extract_answer(text)
+            try:
+                pred_matrix = eval(pred_str)
+                # Assume answer is provided as a string for each example
+                true_matrix = eval(answer[i]) if isinstance(answer, list) else eval(answer)
+                pred_tensor = torch.tensor(pred_matrix, dtype=torch.float32)
+                true_tensor = torch.tensor(true_matrix, dtype=torch.float32)
+                error = torch.norm(pred_tensor - true_tensor)
+                reward = 2.0 if error < self.tol else 0.0
+            except Exception:
+                reward = 0.0
+            rewards.append(reward)
+        return rewards
+
+    def _valid_format_reward(self, completions) -> List[float]:
+        """
+        Reward for ensuring the predicted RREF is in a valid format
+        (i.e., a Python list-of-lists with numeric entries).
+        """
+        rewards = []
+        for completion in completions:
+            text = completion[0]['content']
+            ans_str = self._extract_answer(text)
+            try:
+                matrix = eval(ans_str)
+                if isinstance(matrix, list) and all(isinstance(row, list) for row in matrix):
+                    valid = all(all(isinstance(x, (int, float)) for x in row) for row in matrix)
+                    rewards.append(0.5 if valid else 0.0)
+                else:
+                    rewards.append(0.0)
+            except Exception:
+                rewards.append(0.0)
+        return rewards
+
+    def _strict_format_reward(self, completions) -> List[float]:
+        """
+        Reward for strict adherence to the expected format:
+        <think>
+        ...content...
+        </think>
+        <answer>
+        ...content...
+        </answer>
+        (with proper newlines).
+        """
+        pattern = r"^<think>\n.*?\n</think>\n<answer>\n.*?\n</answer>\n$"
+        rewards = []
+        for completion in completions:
+            text = completion[0]['content']
+            match = bool(re.match(pattern, text, re.DOTALL))
+            rewards.append(0.5 if match else 0.0)
+        return rewards
+
+    def _soft_format_reward(self, completions) -> List[float]:
+        """
+        Reward for a looser check on formatting: the output should contain
+        both <think>...</think> and <answer>...</answer> blocks.
+        """
+        pattern = r"<think>.*?</think>.*<answer>.*?</answer>"
+        rewards = []
+        for completion in completions:
+            text = completion[0]['content']
+            match = bool(re.search(pattern, text, re.DOTALL))
+            rewards.append(0.5 if match else 0.0)
+        return rewards
+
+    def _tag_count_reward(self, completions) -> List[float]:
+        """
+        Reward based on the correct count of tags. The output should contain
+        exactly one <think>, one </think>, one <answer>, and one </answer> tag.
+        """
+        rewards = []
+        for completion in completions:
+            text = completion[0]['content']
+            count_think_open = text.count("<think>")
+            count_think_close = text.count("</think>")
+            count_answer_open = text.count("<answer>")
+            count_answer_close = text.count("</answer>")
+            if count_think_open == 1 and count_think_close == 1 and count_answer_open == 1 and count_answer_close == 1:
+                rewards.append(0.5)
+            else:
+                rewards.append(0.0)
+        return rewards
 
     def compute_rewards(
         self,
-        prompts: list[list[dict[str, str]]],
-        completions: list[list[dict[str, str]]],
-        answer: any,
+        prompts: List[List[Dict[str, str]]],
+        completions: List[List[Dict[str, str]]],
+        answer: Any,
         device: str
-    ) -> tuple[torch.Tensor, dict]:
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
         num_completions = len(completions)
-        rewards_per_func = torch.zeros(num_completions, 1, device=device)
-        correct_count = 0
-
-        for i, completion in enumerate(completions):
-            text = completion[0]['content']
-            pred = self._parse_inverse(text)
-            if pred is None:
-                reward = 0.0
-            else:
-                try:
-                    pred_tensor = torch.tensor(pred, dtype=torch.float32)
-                    true_tensor = torch.tensor(eval(answer[i]) if isinstance(answer, list) else torch.tensor(eval(answer)), dtype=torch.float32)
-                    error = torch.norm(pred_tensor - true_tensor)
-                    # Give full reward if error is below tolerance
-                    reward = 2.0 if error < self.tol else 0.0
-                    if reward > 0:
-                        correct_count += 1
-                except Exception:
-                    reward = 0.0
-            rewards_per_func[i, 0] = reward
-
-        accuracy = correct_count / num_completions if num_completions > 0 else 0.0
+        rewards_per_func = torch.zeros(num_completions, self.num_reward_functions, device=device)
+        
+        # Compute rewards using our defined functions
+        correctness = self._correctness_reward(completions, answer)
+        valid_format = self._valid_format_reward(completions)
+        strict_format = self._strict_format_reward(completions)
+        soft_format = self._soft_format_reward(completions)
+        tag_count = self._tag_count_reward(completions)
+        
+        all_scores = [correctness, valid_format, strict_format, soft_format, tag_count]
+        for i, scores in enumerate(all_scores):
+            rewards_per_func[:, i] = torch.tensor(scores, dtype=torch.float32, device=device)
+        
+        # Compute aggregated metrics
+        reward_per_func_avg = rewards_per_func.mean(0)
+        num_perfect = sum(1 for r in correctness if r == 2.0)
+        accuracy = num_perfect / num_completions if num_completions > 0 else 0.0
+        
         metrics = {
+            "rewards/correctness_reward_func": reward_per_func_avg[0].item(),
+            "rewards/int_reward_func": reward_per_func_avg[1].item(),
+            "rewards/strict_format_reward_func": reward_per_func_avg[2].item(),
+            "rewards/soft_format_reward_func": reward_per_func_avg[3].item(),
+            "rewards/xmlcount_reward_func": reward_per_func_avg[4].item(),
             "reward": rewards_per_func.sum(dim=1).mean().item(),
             "accuracy": accuracy
         }
         return rewards_per_func, metrics
 
-    def get_reward_breakdown(self, reward_scores: torch.Tensor) -> dict:
-        return {"matrix_accuracy": reward_scores[0].item()}
-    
+    def get_reward_breakdown(self, reward_scores: torch.Tensor) -> Dict[str, float]:
+        return {
+            "correctness": reward_scores[0].item(),
+            "integer_format": reward_scores[1].item(),
+            "strict_format": reward_scores[2].item(),
+            "soft_format": reward_scores[3].item(),
+            "xml_count": reward_scores[4].item()
+        }
+
 
 def get_evaluator(name: str) -> RewardEvaluator:
-    """
-    Get the appropriate reward evaluator for a given task.
-    
+    """ Get the appropriate reward evaluator for a given task.
+
     Args:
         name: Name of the task/dataset to get evaluator for
         
@@ -252,7 +367,7 @@ def get_evaluator(name: str) -> RewardEvaluator:
     """
     if name.lower() == "gsm8k":
         return GSM8kEvaluator()
-    elif name.lower() == "matrix_inversion":
-        return MatrixInversionEvaluator()
+    elif name.lower() == "matrix_RREF":
+        return MatrixRREFEvaluator()
     else:
         raise NotImplementedError(f"No evaluator implemented for {name}")

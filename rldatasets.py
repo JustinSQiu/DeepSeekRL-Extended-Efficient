@@ -9,6 +9,7 @@ from tqdm import tqdm
 from datasets import load_dataset, Dataset
 from abc import ABC, abstractmethod
 from typing import Tuple, Any, List
+import json
 
 
 
@@ -180,34 +181,37 @@ def get_dataloaders(dataset_name: str) -> Tuple[DataLoader, DataLoader]:
     """
     if dataset_name.lower() == 'gsm8k':
         return build_gsm8k_dataloaders()
-    elif dataset_name.lower() == 'matrix_inversion':
-        return build_matrix_inversion_dataloaders()
+    elif dataset_name.lower() == 'matrix_RREFs':
+        return build_matrix_RREFs_dataloaders()
     else:
         raise ValueError(f"Dataset {dataset_name} not supported.")
 
 
-class MatrixInversionLoader(DataLoader):
-    """ A loader class for matrix inversion problems. Each example consists of a matrix (the question) and its inverse (the answer). """
+class MatrixRREFLoader(DataLoader):
+    """ A loader class for Gaussian elimination problems. Each example consists of a matrix (the question) and its RREF (the answer). """
     
-    def __init__(self, matrices: List[str], inverses: List[str], random: bool = False) -> None:
+    def __init__(self, matrices: List[str], RREFs: List[str], random: bool = False) -> None:
         super().__init__()
         self.random = random
         self.matrices = matrices
-        self.inverses = inverses
-        self.system_prompt = (
-            "You will be given a matrix. Your task is to compute its inverse. "
-            "Return your answer using the following format:\n"
-            "<inverse>\n"
-            "Your computed inverse here (as a 2D list or formatted matrix)\n"
-            "</inverse>\n"
-            "Do not include any text outside the tags."
+        self.RREFs = RREFs
+        self.system_prompt = ("""
+            "You will be given a matrix. Your task is to do a Gaussian elimination on it to find the reduced row echelon form. Your computed RREF should be in the form of a 2d list. Return your answer using the following format:\n"
+            <reasoning>\n
+            ...
+            </reasoning>
+            <answer>\n
+            ...
+            </answer>\n
+            Do not include any text outside the tags
+            """
         )
         self.current_index = 0
 
     def __len__(self) -> int:
         return len(self.matrices)
 
-    def __iter__(self) -> 'MatrixInversionLoader':
+    def __iter__(self) -> 'MatrixRREFLoader':
         return self
 
     def __next__(self) -> Tuple[str, str]:
@@ -216,27 +220,22 @@ class MatrixInversionLoader(DataLoader):
         idx = random.randint(0, len(self.matrices) - 1) if self.random else self.current_index
         if not self.random:
             self.current_index += 1
-        return self.matrices[idx], self.inverses[idx]
+        return self.matrices[idx], self.RREFs[idx]
 
     def reset(self):
         self.current_index = 0
 
 
-def build_matrix_inversion_dataloaders() -> Tuple[DataLoader, DataLoader]:
-    # Replace the following with code to load your matrix inversion dataset. 
-    # For illustration, we assume matrices and inverses are stored as lists of strings.
+def build_matrix_RREF_dataloaders() -> Tuple[DataLoader, DataLoader]:
+    # Replace the following with code to load your matrix RREF dataset. 
+    # For illustration, we assume matrices and RREFs are stored as lists of strings.
     
-    matrices = [
-        "[[1, 2], [3, 4]]", 
-        "[[2, 0], [0, 2]]", 
-        # ... add more examples
-    ]
-    inverses = [
-        "[[-2.0, 1.0], [1.5, -0.5]]", 
-        "[[0.5, 0], [0, 0.5]]", 
-        # ... corresponding inverses
-    ]
-    
+    with open("data/inputs.txt", "r") as f:
+        matrices = json.load(f)
+    with open("data/outputs.txt", "r") as f:
+        RREFs = json.load(f)
+
+
     # Use a simple split (or any strategy you prefer) for train/test
     total = len(matrices)
     test_size = int(total * 0.1)  # e.g., 10% test set
@@ -245,11 +244,11 @@ def build_matrix_inversion_dataloaders() -> Tuple[DataLoader, DataLoader]:
     test_idx = set(indices[:test_size])
     
     train_matrices = [m for i, m in enumerate(matrices) if i not in test_idx]
-    train_inverses = [inv for i, inv in enumerate(inverses) if i not in test_idx]
+    train_RREFs = [inv for i, inv in enumerate(RREFs) if i not in test_idx]
     test_matrices = [m for i, m in enumerate(matrices) if i in test_idx]
-    test_inverses = [inv for i, inv in enumerate(inverses) if i in test_idx]
+    test_RREFs = [inv for i, inv in enumerate(RREFs) if i in test_idx]
     
-    return MatrixInversionLoader(train_matrices, train_inverses), MatrixInversionLoader(test_matrices, test_inverses)
+    return MatrixRREFLoader(train_matrices, train_RREFs), MatrixRREFLoader(test_matrices, test_RREFs)
 
 
 if __name__ == "__main__": 
