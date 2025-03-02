@@ -8,7 +8,7 @@ import numpy as np
 from tqdm import tqdm
 from datasets import load_dataset, Dataset
 from abc import ABC, abstractmethod
-from typing import Tuple, Any
+from typing import Tuple, Any, List
 
 
 
@@ -180,8 +180,76 @@ def get_dataloaders(dataset_name: str) -> Tuple[DataLoader, DataLoader]:
     """
     if dataset_name.lower() == 'gsm8k':
         return build_gsm8k_dataloaders()
+    elif dataset_name.lower() == 'matrix_inversion':
+        return build_matrix_inversion_dataloaders()
     else:
-        raise ValueError(f"Dataset {dataset_name} not supported. Currently only 'gsm8k' is available.")
+        raise ValueError(f"Dataset {dataset_name} not supported.")
+
+
+class MatrixInversionLoader(DataLoader):
+    """ A loader class for matrix inversion problems. Each example consists of a matrix (the question) and its inverse (the answer). """
+    
+    def __init__(self, matrices: List[str], inverses: List[str], random: bool = False) -> None:
+        super().__init__()
+        self.random = random
+        self.matrices = matrices
+        self.inverses = inverses
+        self.system_prompt = (
+            "You will be given a matrix. Your task is to compute its inverse. "
+            "Return your answer using the following format:\n"
+            "<inverse>\n"
+            "Your computed inverse here (as a 2D list or formatted matrix)\n"
+            "</inverse>\n"
+            "Do not include any text outside the tags."
+        )
+        self.current_index = 0
+
+    def __len__(self) -> int:
+        return len(self.matrices)
+
+    def __iter__(self) -> 'MatrixInversionLoader':
+        return self
+
+    def __next__(self) -> Tuple[str, str]:
+        if self.current_index >= len(self.matrices):
+            raise StopIteration
+        idx = random.randint(0, len(self.matrices) - 1) if self.random else self.current_index
+        if not self.random:
+            self.current_index += 1
+        return self.matrices[idx], self.inverses[idx]
+
+    def reset(self):
+        self.current_index = 0
+
+
+def build_matrix_inversion_dataloaders() -> Tuple[DataLoader, DataLoader]:
+    # Replace the following with code to load your matrix inversion dataset. 
+    # For illustration, we assume matrices and inverses are stored as lists of strings.
+    
+    matrices = [
+        "[[1, 2], [3, 4]]", 
+        "[[2, 0], [0, 2]]", 
+        # ... add more examples
+    ]
+    inverses = [
+        "[[-2.0, 1.0], [1.5, -0.5]]", 
+        "[[0.5, 0], [0, 0.5]]", 
+        # ... corresponding inverses
+    ]
+    
+    # Use a simple split (or any strategy you prefer) for train/test
+    total = len(matrices)
+    test_size = int(total * 0.1)  # e.g., 10% test set
+    indices = list(range(total))
+    random.shuffle(indices)
+    test_idx = set(indices[:test_size])
+    
+    train_matrices = [m for i, m in enumerate(matrices) if i not in test_idx]
+    train_inverses = [inv for i, inv in enumerate(inverses) if i not in test_idx]
+    test_matrices = [m for i, m in enumerate(matrices) if i in test_idx]
+    test_inverses = [inv for i, inv in enumerate(inverses) if i in test_idx]
+    
+    return MatrixInversionLoader(train_matrices, train_inverses), MatrixInversionLoader(test_matrices, test_inverses)
 
 
 if __name__ == "__main__": 

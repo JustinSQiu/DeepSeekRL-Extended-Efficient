@@ -62,26 +62,6 @@ class RewardEvaluator(ABC):
         pass
 
 
-def get_evaluator(name: str) -> RewardEvaluator:
-    """
-    Get the appropriate reward evaluator for a given task.
-    
-    Args:
-        name: Name of the task/dataset to get evaluator for
-        
-    Returns:
-        RewardEvaluator instance for the specified task
-        
-    Raises:
-        NotImplementedError: If evaluator for given task is not implemented
-    """
-    if name.lower() == "gsm8k":
-        return GSM8kEvaluator()
-    else:
-        raise NotImplementedError(f"No evaluator implemented for {name}")
-
-
-
 class GSM8kEvaluator(RewardEvaluator):
     """
     Reward evaluator for the GSM8K math problem dataset.
@@ -199,3 +179,80 @@ class GSM8kEvaluator(RewardEvaluator):
             'soft_format': reward_scores[3].item(),
             'xml_count': reward_scores[4].item()
         }
+
+class MatrixInversionEvaluator(RewardEvaluator):
+    """ Evaluator for matrix inversion tasks. The evaluator parses the generated answer to extract the inverse and compares it to the ground truth. If the error is below a tolerance, a reward is given. """
+    
+    def __init__(self, tol: float = 1e-3):
+        self.tol = tol  # tolerance for numerical error
+
+    def _parse_inverse(self, text: str) -> any:
+        try:
+            start = text.index("<inverse>") + len("<inverse>")
+            end = text.index("</inverse>")
+            matrix_str = text[start:end].strip()
+            # Assumes the inverse is formatted as a Python list of lists.
+            parsed_matrix = eval(matrix_str)
+            return parsed_matrix
+        except Exception:
+            return None
+
+    def compute_rewards(
+        self,
+        prompts: list[list[dict[str, str]]],
+        completions: list[list[dict[str, str]]],
+        answer: any,
+        device: str
+    ) -> tuple[torch.Tensor, dict]:
+        num_completions = len(completions)
+        rewards_per_func = torch.zeros(num_completions, 1, device=device)
+        correct_count = 0
+
+        for i, completion in enumerate(completions):
+            text = completion[0]['content']
+            pred = self._parse_inverse(text)
+            if pred is None:
+                reward = 0.0
+            else:
+                try:
+                    pred_tensor = torch.tensor(pred, dtype=torch.float32)
+                    true_tensor = torch.tensor(eval(answer[i]) if isinstance(answer, list) else torch.tensor(eval(answer)), dtype=torch.float32)
+                    error = torch.norm(pred_tensor - true_tensor)
+                    # Give full reward if error is below tolerance
+                    reward = 2.0 if error < self.tol else 0.0
+                    if reward > 0:
+                        correct_count += 1
+                except Exception:
+                    reward = 0.0
+            rewards_per_func[i, 0] = reward
+
+        accuracy = correct_count / num_completions if num_completions > 0 else 0.0
+        metrics = {
+            "reward": rewards_per_func.sum(dim=1).mean().item(),
+            "accuracy": accuracy
+        }
+        return rewards_per_func, metrics
+
+    def get_reward_breakdown(self, reward_scores: torch.Tensor) -> dict:
+        return {"matrix_accuracy": reward_scores[0].item()}
+    
+
+def get_evaluator(name: str) -> RewardEvaluator:
+    """
+    Get the appropriate reward evaluator for a given task.
+    
+    Args:
+        name: Name of the task/dataset to get evaluator for
+        
+    Returns:
+        RewardEvaluator instance for the specified task
+        
+    Raises:
+        NotImplementedError: If evaluator for given task is not implemented
+    """
+    if name.lower() == "gsm8k":
+        return GSM8kEvaluator()
+    elif name.lower() == "matrix_inversion":
+        return MatrixInversionEvaluator()
+    else:
+        raise NotImplementedError(f"No evaluator implemented for {name}")
