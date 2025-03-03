@@ -41,6 +41,35 @@ def seed_everything(seed: int) -> None:
 
 
 
+# def write_generation_log(log_data: Dict[str, Any], log_file: str) -> None:
+#     """
+#     Write generation log data to a text file.
+
+#     Args:
+#         log_data: Dictionary containing prompt and generation data
+#         log_file: Path to output log file
+#     """
+#     with open(log_file, 'w') as f:
+#         # Write prompt section
+#         f.write("###### ORIGINAL PROMPT #####\n\n")
+#         f.write(log_data['prompt']['text'] + "\n\n")
+#         f.write("#### ANS ####\n\n")
+#         f.write(str(log_data['prompt']['answer']) + "\n")
+
+#         # Write each generation
+#         for i, gen in enumerate(log_data['generations'], 1):
+#             f.write(f"#### GENERATION {i} RESPONSE ####\n\n")
+#             f.write(gen['response'] + "\n\n")
+#             f.write(f"#### GENERATION {i} SCORES ####\n")
+            
+#             # Write individual scores
+#             f.write(f"Correctness: {gen['scores']['correctness']}\n")
+#             f.write(f"Integer format: {gen['scores']['integer_format']}\n") 
+#             f.write(f"Strict format: {gen['scores']['strict_format']}\n")
+#             f.write(f"Soft format: {gen['scores']['soft_format']}\n")
+#             f.write(f"XML count: {gen['scores']['xml_count']}\n")
+#             f.write(f"Total reward: {gen['scores']['total_reward']}\n\n")
+
 def write_generation_log(log_data: Dict[str, Any], log_file: str) -> None:
     """
     Write generation log data to a text file.
@@ -62,13 +91,16 @@ def write_generation_log(log_data: Dict[str, Any], log_file: str) -> None:
             f.write(gen['response'] + "\n\n")
             f.write(f"#### GENERATION {i} SCORES ####\n")
             
-            # Write individual scores
-            f.write(f"Correctness: {gen['scores']['correctness']}\n")
-            f.write(f"Integer format: {gen['scores']['integer_format']}\n") 
-            f.write(f"Strict format: {gen['scores']['strict_format']}\n")
-            f.write(f"Soft format: {gen['scores']['soft_format']}\n")
-            f.write(f"XML count: {gen['scores']['xml_count']}\n")
-            f.write(f"Total reward: {gen['scores']['total_reward']}\n\n")
+            f.write(f"Binary Correctness: {gen['scores']['binary_correctness']}\n")
+            f.write(f"Row by Row: {gen['scores']['row_by_row']}\n")
+            f.write(f"Frobenius: {gen['scores']['frobenius']}\n")
+            f.write(f"Valid Format: {gen['scores']['valid_format']}\n")
+            f.write(f"Strict Format: {gen['scores']['strict_format']}\n")
+            f.write(f"Soft Format: {gen['scores']['soft_format']}\n")
+            f.write(f"Tag Count: {gen['scores']['tag_count']}\n")
+            f.write(f"Think Length: {gen['scores']['think_length']}\n")
+            f.write(f"Total Reward: {sum(gen['scores'].values())}\n\n")  # Optionally, sum all the breakdown values for total reward
+
 
 
 ####################################################################################

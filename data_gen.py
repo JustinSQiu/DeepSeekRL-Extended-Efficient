@@ -1,9 +1,9 @@
 import random
 from sympy import Matrix
 
-def generate_random_matrix(n):
-    """Generates a random n x n matrix with values between -10 and 10."""
-    return [[random.randint(-10, 10) for _ in range(n)] for _ in range(n)]
+def generate_random_matrix(rows, cols, low, high):
+    """Generates a random n x n matrix"""
+    return [[random.randint(low, high) for _ in range(rows)] for _ in range(cols)]
 
 def write_matrices_to_file(filename, matrices):
     """Writes matrices to a file in the required format."""
@@ -11,9 +11,9 @@ def write_matrices_to_file(filename, matrices):
         for matrix in matrices:
             file.write(f"{matrix}\n")
 
-def main(n, num_matrices):
+def main(num_matrices, rows=10, cols=10, low=-100, high=100):
     # Step 1: Generate random matrices
-    matrices = [generate_random_matrix(n) for _ in range(num_matrices)]
+    matrices = [generate_random_matrix(random.randint(1, rows), random.randint(1, cols), low, high) for _ in range(num_matrices)]
     
     # Step 2: Write the matrices to inputs.txt
     write_matrices_to_file('data/inputs.txt', matrices)
@@ -30,9 +30,5 @@ def main(n, num_matrices):
 
     print("Matrices and their RREF have been written to 'inputs.txt' and 'outputs.txt'.")
 
-if __name__ == "__main__":
-    # Define matrix size and number of matrices
-    n = 2  # Size of the matrix (n x n)
-    num_matrices = 100  # Number of random matrices to generate
-    
-    main(n, num_matrices)
+if __name__ == "__main__":    
+    main(100)

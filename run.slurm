@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=r1_train
-#SBATCH --output=slurm_output/slurm_output_rref.txt
+#SBATCH --job-name=r1_train_nonsquare
+#SBATCH --output=slurm_output/slurm_output_rref_nonsquare.txt
 #SBATCH --partition=p_nlp
 #SBATCH --gpus=1
 #SBATCH --cpus-per-task=4
@@ -19,7 +19,7 @@ python --version
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-python main.py --dataset_name "matrix_RREF" --evaluator "matrix_RREF" --output_dir "output_matrix_RREF" --num_train_iters 50 --eval_iterations 10 --verbose
+python main.py --dataset_name "matrix_rref" --evaluator "enhanced_matrix_rref" --output_dir "output_matrix_RREF_nonsquare" --num_train_iters 100 --eval_iterations 20 --verbose --max_completion_length 1024 --gradient_accumulation_steps 1
 
 # python plotter.py --log_dir "final1"
 

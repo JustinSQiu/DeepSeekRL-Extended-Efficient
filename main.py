@@ -137,7 +137,7 @@ def generate_completions(
     # 1. Prepare prompting
     prompt = [
         {'role': 'system', 'content': train_loader.system_prompt},
-        {'role': 'user', 'content': question}
+        {'role': 'user', 'content': train_loader.pre_prompt + question}
     ]
     prompt_text = tokenizer.apply_chat_template(prompt, tokenize=False)
     prompt_inputs = tokenizer(prompt_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False)

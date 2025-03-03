@@ -86,7 +86,6 @@ class GSM8KLoader(DataLoader):
         self.answers = answers
         self.pre_prompt = """You will be given a question that involves reasoning. You should reason carefully about the question, then provide your answer.
             It is very important that you put your reasoning process inside <reasoning> tags and your final answer inside <answer> tags, like this:
-
             
             <reasoning>
             Your step-by-step reasoning process here
@@ -95,8 +94,7 @@ class GSM8KLoader(DataLoader):
             Your final answer here
             </answer>
 
-            All of your returned text should either be in the <reasoning> or <answer> tags - no text outside! Start each answer by immediately starting with <reasoning>. 
-            It is is extremely important you answer in this way - do not put any information or text outside of these tags!
+            All of your returned text should either be in the <reasoning> or <answer> tags - no text outside! Start each answer by immediately starting with <reasoning>. It is is extremely important that you do not put any text outside of these tags.
 
             Question: """
         self.system_prompt = SYSTEM_PROMPT
@@ -156,7 +154,7 @@ def build_gsm8k_dataloaders() -> Tuple[GSM8KLoader, GSM8KLoader]:
     # Split using boolean indexing
     test_questions = questions[test_mask]
     test_answers = parsed_answers[test_mask]
-    train_questions = questions[~test_mask] 
+    train_questions = questions[~test_mask]
     train_answers = parsed_answers[~test_mask]
 
     # Setup data loaders 
@@ -181,8 +179,8 @@ def get_dataloaders(dataset_name: str) -> Tuple[DataLoader, DataLoader]:
     """
     if dataset_name.lower() == 'gsm8k':
         return build_gsm8k_dataloaders()
-    elif dataset_name.lower() == 'matrix_RREFs':
-        return build_matrix_RREFs_dataloaders()
+    elif dataset_name.lower() == 'matrix_rref':
+        return build_matrix_RREF_dataloaders()
     else:
         raise ValueError(f"Dataset {dataset_name} not supported.")
 
@@ -195,17 +193,25 @@ class MatrixRREFLoader(DataLoader):
         self.random = random
         self.matrices = matrices
         self.RREFs = RREFs
-        self.system_prompt = ("""
-            "You will be given a matrix. Your task is to do a Gaussian elimination on it to find the reduced row echelon form. Your computed RREF should be in the form of a 2d list. Return your answer using the following format:\n"
-            <reasoning>\n
-            ...
+        self.pre_prompt = """You will be given a question that involves computing the reduced row-echelon form of a matrix. You should reason carefully about the question, then provide your answer.
+            It is very important that you put your reasoning process inside <reasoning> tags and your final answer inside <answer> tags, like this:
+
+
+            <reasoning>
+            Your step-by-step reasoning process here
             </reasoning>
-            <answer>\n
-            ...
-            </answer>\n
-            Do not include any text outside the tags
-            """
-        )
+            <answer>
+            Your final answer here
+            </answer>
+
+            All of your returned text should either be in the <reasoning> or <answer> tags - no text outside! Start each answer by immediately starting with <reasoning>. 
+            It is is extremely important you answer in this way - do not put any information or text outside of these tags!
+            Your <answer> tag should only contain the reduced row-echelon form of the matrix in this form:
+            [[a, b], [c, d]]
+
+            Question: """
+
+        self.system_prompt = SYSTEM_PROMPT
         self.current_index = 0
 
     def __len__(self) -> int:
@@ -229,12 +235,14 @@ class MatrixRREFLoader(DataLoader):
 def build_matrix_RREF_dataloaders() -> Tuple[DataLoader, DataLoader]:
     # Replace the following with code to load your matrix RREF dataset. 
     # For illustration, we assume matrices and RREFs are stored as lists of strings.
-    
-    with open("data/inputs.txt", "r") as f:
-        matrices = json.load(f)
-    with open("data/outputs.txt", "r") as f:
-        RREFs = json.load(f)
 
+    with open('data/inputs.txt', 'r') as file:
+        lines = file.readlines()
+    matrices = [line.strip() for line in lines]
+
+    with open('data/outputs.txt', 'r') as file:
+        lines = file.readlines()
+    RREFs = [line.strip() for line in lines]
 
     # Use a simple split (or any strategy you prefer) for train/test
     total = len(matrices)
