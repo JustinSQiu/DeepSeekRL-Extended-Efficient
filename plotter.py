@@ -40,13 +40,27 @@ def plot_metrics(output_dir):
     with PdfPages(pdf_path) as pdf:
         
         # Plot reward metrics
+        # reward_metrics = [
+        #     'rewards/correctness_reward_func',
+        #     'rewards/int_reward_func', 
+        #     'rewards/strict_format_reward_func',
+        #     'rewards/soft_format_reward_func',
+        #     'rewards/xmlcount_reward_func',
+        #     'reward'
+        # ]
+        # reward_metrics = [
+        #     'rewards/binary_correctness',
+        #     'rewards/row_by_row',
+        #     'rewards/frobenius',
+        #     'rewards/valid_format',
+        #     'rewards/strict_format',
+        #     'rewards/soft_format',
+        #     'rewards/tag_count',
+        #     'rewards/think_length',
+        # ]
         reward_metrics = [
             'rewards/correctness_reward_func',
-            'rewards/int_reward_func', 
-            'rewards/strict_format_reward_func',
-            'rewards/soft_format_reward_func',
-            'rewards/xmlcount_reward_func',
-            'reward'
+            'rewards/format_reward_func',
         ]
         
         for metric, color in zip(reward_metrics, colors):

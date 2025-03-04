@@ -366,6 +366,7 @@ class MatrixRREFEvaluator(RewardEvaluator):
             "xml_count": reward_scores[4].item()
         }
     
+
 class EnhancedMatrixRREFEvaluator(RewardEvaluator):
     """
     An enhanced evaluator for matrix RREF tasks that rewards:
@@ -545,12 +546,11 @@ class EnhancedMatrixRREFEvaluator(RewardEvaluator):
         The reward scales linearly with the number of characters up to a maximum of 0.5.
         """
         rewards = []
-        target_length = 100  # Target number of characters for full reward.
         for completion in completions:
             text = completion[0]['content']
             think_text = self._extract_think(text)
             # Scale reward: if think_text is shorter than target_length, get proportionally less reward.
-            reward = min(0.5, (len(think_text) / target_length) * 0.5)
+            reward = len(think_text) / 1000
             rewards.append(reward)
         return rewards
 
@@ -618,10 +618,290 @@ class EnhancedMatrixRREFEvaluator(RewardEvaluator):
             "think_length": reward_scores[7].item()
         }
 
-# Example helper function to get the evaluator
+
+class AdditionEvaluator(RewardEvaluator):
+    """
+    Reward evaluator for addition problems.
+    
+    This evaluator implements reward functions for:
+    - Answer correctness: rewards 2.0 if the predicted answer matches the ground truth.
+    - Format validation: rewards 0.5 if a valid number is extracted from the completion.
+    """
+    def __init__(self, tol: float = 1e-6):
+        self.tol = tol
+        self.num_reward_functions = 2
+
+    def _extract_answer(self, text: str) -> str:
+        """Extract answer from <answer> tags."""
+        try:
+            return text.split("<answer>")[-1].split("</answer>")[0].strip()
+        except Exception:
+            return ""
+
+    def _correctness_reward(self, completions, answer) -> List[float]:
+        """
+        Computes the correctness reward.
+        For each completion, if the extracted number matches the ground truth (within tolerance),
+        reward 2.0; otherwise, reward 0.0.
+        """
+        rewards = []
+        # Assuming answer is either a single value (used for all completions) or a list of answers.
+        for i, completion in enumerate(completions):
+            try:
+                text = completion[0]['content']
+                ans = self._extract_answer(text)
+                pred_num = int(ans)
+                # Determine the ground truth for the current instance.
+                true_answer = answer[i] if isinstance(answer, list) else answer
+                try:
+                    true_num = float(true_answer)
+                except (ValueError, TypeError):
+                    true_num = None
+
+                if pred_num is not None and true_num is not None and abs(pred_num - true_num) < self.tol:
+                    rewards.append(2.0)
+                else:
+                    rewards.append(0.0)
+            except Exception:
+                rewards.append(0.0)
+        return rewards
+
+    def _format_reward(self, completions) -> List[float]:
+        """
+        Computes the format reward.
+        If a valid number is extracted from the completion, reward 0.5; otherwise, 0.0.
+        """
+        rewards = []
+        for completion in completions:
+            text = completion[0]['content']
+            pred_num = self._extract_answer(text)
+            rewards.append(0.5 if pred_num is not None else 0.0)
+        return rewards
+
+    def compute_rewards(
+        self,
+        prompts: List[List[Dict[str, str]]],
+        completions: List[List[Dict[str, str]]],
+        answer: Any,
+        device: str
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        """
+        Compute rewards for addition problems using correctness and format rewards.
+        """
+        num_completions = len(completions)
+        rewards_per_func = torch.zeros(num_completions, self.num_reward_functions, device=device)
+
+        correctness = self._correctness_reward(completions, answer)
+        format_reward = self._format_reward(completions)
+        all_scores = [correctness, format_reward]
+
+        for i, scores in enumerate(all_scores):
+            rewards_per_func[:, i] = torch.tensor(scores, dtype=torch.float32, device=device)
+        
+        # Aggregated metrics
+        avg_correctness = rewards_per_func[:, 0].mean().item()
+        avg_format = rewards_per_func[:, 1].mean().item()
+        total_reward = rewards_per_func.sum(dim=1).mean().item()
+        # Accuracy defined as the fraction of completions that got the full correctness reward.
+        num_perfect = sum(1 for r in correctness if r == 2.0)
+        accuracy = num_perfect / num_completions if num_completions > 0 else 0.0
+
+        metrics = {
+            "rewards/correctness_reward_func": avg_correctness,
+            "rewards/format_reward_func": avg_format,
+            "reward": total_reward,
+            "accuracy": accuracy
+        }
+        
+        return rewards_per_func, metrics
+
+    def get_reward_breakdown(self, reward_scores: torch.Tensor) -> Dict[str, float]:
+        """
+        Convert the reward scores tensor to a labeled dictionary.
+        """
+        return {
+            "correctness": reward_scores[0].item(),
+            "format": reward_scores[1].item()
+        }
+    
+
+class MatrixInverseEvaluator(RewardEvaluator):
+    def __init__(self, tol: float = 1e-3, weights: Dict[str, float] = None):
+        self.tol = tol
+        self.num_reward_functions = 5
+        # Default weights for each reward component.
+        if weights is None:
+            self.weights = {
+                'correctness': 1.0,
+                'valid_format': 0.5,
+                'strict_format': 0.5,
+                'soft_format': 0.5,
+                'tag_count': 0.5
+            }
+        else:
+            self.weights = weights
+
+    def _extract_answer(self, text: str) -> str:
+        try:
+            return text.split("<answer>")[-1].split("</answer>")[0].strip()
+        except Exception:
+            return ""
+
+    def _extract_matrix_from_prompt(self, prompt: str) -> Any:
+        try:
+            start = prompt.find('[')
+            end = prompt.rfind(']') + 1
+            matrix_str = prompt[start:end]
+            return eval(matrix_str)
+        except Exception:
+            return None
+
+    def _continuous_correctness_reward(self, prompts, completions) -> List[float]:
+        rewards = []
+        for i, completion in enumerate(completions):
+            text = completion[0]['content']
+            pred_str = self._extract_answer(text)
+            try:
+                pred_inverse = torch.tensor(eval(pred_str), dtype=torch.float32)
+            except Exception:
+                rewards.append(0.0)
+                continue
+
+            prompt_text = prompts[i][0]['content']
+            input_matrix = self._extract_matrix_from_prompt(prompt_text)
+            if input_matrix is None:
+                rewards.append(0.0)
+                continue
+            input_matrix = torch.tensor(input_matrix, dtype=torch.float32)
+            try:
+                prod = torch.matmul(pred_inverse, input_matrix)
+                identity = torch.eye(input_matrix.size(0), device=prod.device, dtype=prod.dtype)
+                error = torch.norm(prod - identity, p=1).item()
+                # Exponential decay: perfect inversion yields 2.0; errors lower the reward smoothly.
+                reward = 2.0 * torch.exp(-torch.tensor(error / self.tol, dtype=torch.float32)).item()
+            except Exception:
+                reward = 0.0
+            rewards.append(reward)
+        return rewards
+
+    def _graded_valid_format_reward(self, completions) -> List[float]:
+        rewards = []
+        for completion in completions:
+            text = completion[0]['content']
+            ans_str = self._extract_answer(text)
+            try:
+                matrix = eval(ans_str)
+            except Exception:
+                rewards.append(0.0)
+                continue
+            if not isinstance(matrix, list) or not all(isinstance(row, list) for row in matrix):
+                rewards.append(0.0)
+                continue
+            valid_rows = 0
+            total_rows = len(matrix)
+            for row in matrix:
+                if all(isinstance(x, (int, float)) for x in row):
+                    valid_rows += 1
+            # Fraction of rows valid, scaled to a maximum reward of 0.5.
+            reward = (valid_rows / total_rows) * 0.5
+            rewards.append(reward)
+        return rewards
+
+    def _graded_strict_format_reward(self, completions) -> List[float]:
+        required_tokens = ["<think>", "</think>", "<answer>", "</answer>"]
+        rewards = []
+        for completion in completions:
+            text = completion[0]["content"]
+            score = 0.0
+            for token in required_tokens:
+                # For each token, give partial credit if it appears.
+                if token in text:
+                    score += 0.125  # maximum 0.5 if all tokens are present
+            rewards.append(score)
+        return rewards
+
+    def _graded_soft_format_reward(self, completions) -> List[float]:
+        required_tokens = ["<think>", "<answer>"]
+        rewards = []
+        for completion in completions:
+            text = completion[0]["content"]
+            score = 0.0
+            for token in required_tokens:
+                if token in text:
+                    score += 0.25  # maximum reward 0.5 if both tokens are present
+            rewards.append(score)
+        return rewards
+
+    def _graded_tag_count_reward(self, completions) -> List[float]:
+        rewards = []
+        expected_counts = {"<think>": 1, "</think>": 1, "<answer>": 1, "</answer>": 1}
+        for completion in completions:
+            text = completion[0]["content"]
+            total_score = 0.0
+            for token, expected in expected_counts.items():
+                count = text.count(token)
+                total_score += min(count, expected) / expected
+            # Average over tokens, scaled to a maximum of 0.5.
+            rewards.append((total_score / len(expected_counts)) * 0.5)
+        return rewards
+
+    def compute_rewards(
+        self,
+        prompts: List[List[Dict[str, str]]],
+        completions: List[List[Dict[str, str]]],
+        answer: Any,
+        device: str
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        num_completions = len(completions)
+        rewards_per_func = torch.zeros(num_completions, self.num_reward_functions, device=device)
+
+        # Compute continuous correctness and graded format rewards.
+        correctness = self._continuous_correctness_reward(prompts, completions)
+        valid_format = self._graded_valid_format_reward(completions)
+        strict_format = self._graded_strict_format_reward(completions)
+        soft_format = self._graded_soft_format_reward(completions)
+        tag_count = self._graded_tag_count_reward(completions)
+
+        # Apply weighting to each reward component.
+        all_scores = [
+            [self.weights['correctness'] * score for score in correctness],
+            [self.weights['valid_format'] * score for score in valid_format],
+            [self.weights['strict_format'] * score for score in strict_format],
+            [self.weights['soft_format'] * score for score in soft_format],
+            [self.weights['tag_count'] * score for score in tag_count]
+        ]
+        for i, scores in enumerate(all_scores):
+            rewards_per_func[:, i] = torch.tensor(scores, dtype=torch.float32, device=device)
+
+        # Aggregate metrics for monitoring.
+        avg_scores = rewards_per_func.mean(0)
+        num_perfect = sum(1 for r in correctness if r > 1.9)
+        accuracy = num_perfect / num_completions if num_completions > 0 else 0.0
+
+        metrics = {
+            "rewards/correctness_reward_func": avg_scores[0].item(),
+            "rewards/valid_format_reward_func": avg_scores[1].item(),
+            "rewards/strict_format_reward_func": avg_scores[2].item(),
+            "rewards/soft_format_reward_func": avg_scores[3].item(),
+            "rewards/tag_count_reward_func": avg_scores[4].item(),
+            "reward": rewards_per_func.sum(dim=1).mean().item(),
+            "accuracy": accuracy
+        }
+        return rewards_per_func, metrics
+
+    def get_reward_breakdown(self, reward_scores: torch.Tensor) -> Dict[str, float]:
+        return {
+            "correctness": reward_scores[0].item(),
+            "valid_format": reward_scores[1].item(),
+            "strict_format": reward_scores[2].item(),
+            "soft_format": reward_scores[3].item(),
+            "tag_count": reward_scores[4].item()
+        }
+
+
 def get_evaluator(name: str) -> RewardEvaluator:
     """ Get the appropriate reward evaluator for a given task.
-
+    
     Args:
         name: Name of the task/dataset to get evaluator for
         
@@ -637,5 +917,9 @@ def get_evaluator(name: str) -> RewardEvaluator:
         return MatrixRREFEvaluator()
     elif name.lower() == "enhanced_matrix_rref":
         return EnhancedMatrixRREFEvaluator()
+    elif name.lower() == "matrix_inverse":
+        return MatrixInverseEvaluator()
+    elif name.lower() == "addition":
+        return AdditionEvaluator()
     else:
         raise NotImplementedError(f"No evaluator implemented for {name}")

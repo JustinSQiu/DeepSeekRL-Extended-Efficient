@@ -139,6 +139,7 @@ def generate_completions(
         {'role': 'system', 'content': train_loader.system_prompt},
         {'role': 'user', 'content': train_loader.pre_prompt + question}
     ]
+    print(f'prompt: {prompt}')
     prompt_text = tokenizer.apply_chat_template(prompt, tokenize=False)
     prompt_inputs = tokenizer(prompt_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False)
     prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
@@ -415,7 +416,7 @@ def parse_args():
     # Generation parameters
     parser.add_argument("--temperature", type=float, default=0.9, help="Sampling temperature")
     parser.add_argument("--num_chains", type=int, default=8, help="Number of parallel generation chains")
-    parser.add_argument("--max_prompt_length", type=int, default=256, help="Maximum prompt length")
+    parser.add_argument("--max_prompt_length", type=int, default=1024, help="Maximum prompt length")
     parser.add_argument("--max_completion_length", type=int, default=786, help="Maximum completion length")
 
     # Training parameters
