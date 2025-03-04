@@ -139,7 +139,6 @@ def generate_completions(
         {'role': 'system', 'content': train_loader.system_prompt},
         {'role': 'user', 'content': train_loader.pre_prompt + question}
     ]
-    print(f'prompt: {prompt}')
     prompt_text = tokenizer.apply_chat_template(prompt, tokenize=False)
     prompt_inputs = tokenizer(prompt_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False)
     prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
@@ -549,7 +548,7 @@ if __name__ == "__main__":
     for round_num in tqdm(range(args.num_train_iters), desc="Training Progress"):
     
         # Evaluate on test set every so often 
-        if round_num % args.eval_iterations == 0 and round_num != 0:
+        if round_num % args.eval_iterations == 0:
             eval_metrics, eval_accuracy = eval_on_test_set(
                 model=model,
                 tokenizer=tokenizer, 

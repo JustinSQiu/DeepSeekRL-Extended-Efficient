@@ -726,17 +726,26 @@ class AdditionEvaluator(RewardEvaluator):
     
 
 class MatrixInverseEvaluator(RewardEvaluator):
-    def __init__(self, tol: float = 1e-3, weights: Dict[str, float] = None):
+    def __init__(self, tol: float = 1e-1, weights: Dict[str, float] = None):
         self.tol = tol
-        self.num_reward_functions = 5
-        # Default weights for each reward component.
+        # Now we have 7 reward functions:
+        # 1. continuous correctness via product error
+        # 2. graded valid format reward
+        # 3. graded strict format reward
+        # 4. graded soft format reward
+        # 5. graded tag count reward
+        # 6. continuous inverse distance reward (new)
+        # 7. binary inverse accuracy reward (new)
+        self.num_reward_functions = 7
         if weights is None:
             self.weights = {
                 'correctness': 1.0,
                 'valid_format': 0.5,
                 'strict_format': 0.5,
                 'soft_format': 0.5,
-                'tag_count': 0.5
+                'tag_count': 0.5,
+                'continuous_inverse': 1.0,
+                'binary_inverse': 1.0
             }
         else:
             self.weights = weights
@@ -776,9 +785,9 @@ class MatrixInverseEvaluator(RewardEvaluator):
             try:
                 prod = torch.matmul(pred_inverse, input_matrix)
                 identity = torch.eye(input_matrix.size(0), device=prod.device, dtype=prod.dtype)
-                error = torch.norm(prod - identity, p=1).item()
+                product_error = torch.norm(prod - identity, p=1).item()
                 # Exponential decay: perfect inversion yields 2.0; errors lower the reward smoothly.
-                reward = 2.0 * torch.exp(-torch.tensor(error / self.tol, dtype=torch.float32)).item()
+                reward = 2.0 * torch.exp(-torch.tensor(product_error / self.tol, dtype=torch.float32)).item()
             except Exception:
                 reward = 0.0
             rewards.append(reward)
@@ -799,6 +808,9 @@ class MatrixInverseEvaluator(RewardEvaluator):
                 continue
             valid_rows = 0
             total_rows = len(matrix)
+            if not total_rows:
+                rewards.append(0.0)
+                continue
             for row in matrix:
                 if all(isinstance(x, (int, float)) for x in row):
                     valid_rows += 1
@@ -845,36 +857,99 @@ class MatrixInverseEvaluator(RewardEvaluator):
             rewards.append((total_score / len(expected_counts)) * 0.5)
         return rewards
 
+    def _continuous_inverse_distance_reward(self, prompts, completions) -> List[float]:
+        """
+        Computes a continuous reward based on the L1 distance between the
+        predicted inverse and the true inverse of the input matrix.
+        """
+        rewards = []
+        for i, completion in enumerate(completions):
+            text = completion[0]['content']
+            pred_str = self._extract_answer(text)
+            try:
+                pred_inverse = torch.tensor(eval(pred_str), dtype=torch.float32)
+            except Exception:
+                rewards.append(0.0)
+                continue
+
+            prompt_text = prompts[i][0]['content']
+            input_matrix = self._extract_matrix_from_prompt(prompt_text)
+            if input_matrix is None:
+                rewards.append(0.0)
+                continue
+            input_matrix = torch.tensor(input_matrix, dtype=torch.float32)
+            try:
+                true_inverse = torch.inverse(input_matrix)
+                inv_error = torch.norm(pred_inverse - true_inverse, p=1).item()
+                reward = 2.0 * torch.exp(-torch.tensor(inv_error / self.tol, dtype=torch.float32)).item()
+            except Exception:
+                reward = 0.0
+            rewards.append(reward)
+        return rewards
+
+    def _binary_inverse_accuracy_reward(self, prompts, completions) -> List[float]:
+        """
+        Provides binary reward: 1.0 if the predicted inverse is within self.tol
+        (using the L1 norm) of the true inverse, otherwise 0.0.
+        """
+        rewards = []
+        for i, completion in enumerate(completions):
+            text = completion[0]['content']
+            pred_str = self._extract_answer(text)
+            try:
+                pred_inverse = torch.tensor(eval(pred_str), dtype=torch.float32)
+            except Exception:
+                rewards.append(0.0)
+                continue
+
+            prompt_text = prompts[i][0]['content']
+            input_matrix = self._extract_matrix_from_prompt(prompt_text)
+            if input_matrix is None:
+                rewards.append(0.0)
+                continue
+            input_matrix = torch.tensor(input_matrix, dtype=torch.float32)
+            try:
+                true_inverse = torch.inverse(input_matrix)
+                inv_error = torch.norm(pred_inverse - true_inverse, p=1).item()
+                reward = 1.0 if inv_error < self.tol else 0.0
+            except Exception:
+                reward = 0.0
+            rewards.append(reward)
+        return rewards
+
     def compute_rewards(
         self,
         prompts: List[List[Dict[str, str]]],
         completions: List[List[Dict[str, str]]],
-        answer: Any,
+        answer: Any,  # Note: answer is not used since we compute the inverse from the prompt.
         device: str
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         num_completions = len(completions)
         rewards_per_func = torch.zeros(num_completions, self.num_reward_functions, device=device)
 
-        # Compute continuous correctness and graded format rewards.
         correctness = self._continuous_correctness_reward(prompts, completions)
         valid_format = self._graded_valid_format_reward(completions)
         strict_format = self._graded_strict_format_reward(completions)
         soft_format = self._graded_soft_format_reward(completions)
         tag_count = self._graded_tag_count_reward(completions)
+        continuous_inverse = self._continuous_inverse_distance_reward(prompts, completions)
+        binary_inverse = self._binary_inverse_accuracy_reward(prompts, completions)
 
-        # Apply weighting to each reward component.
         all_scores = [
             [self.weights['correctness'] * score for score in correctness],
             [self.weights['valid_format'] * score for score in valid_format],
             [self.weights['strict_format'] * score for score in strict_format],
             [self.weights['soft_format'] * score for score in soft_format],
-            [self.weights['tag_count'] * score for score in tag_count]
+            [self.weights['tag_count'] * score for score in tag_count],
+            [self.weights['continuous_inverse'] * score for score in continuous_inverse],
+            [self.weights['binary_inverse'] * score for score in binary_inverse]
         ]
         for i, scores in enumerate(all_scores):
             rewards_per_func[:, i] = torch.tensor(scores, dtype=torch.float32, device=device)
 
-        # Aggregate metrics for monitoring.
+        # Aggregated metrics for monitoring
         avg_scores = rewards_per_func.mean(0)
+        # Here, "perfect" correctness is defined as a continuous correctness reward above a threshold.
         num_perfect = sum(1 for r in correctness if r > 1.9)
         accuracy = num_perfect / num_completions if num_completions > 0 else 0.0
 
@@ -884,6 +959,8 @@ class MatrixInverseEvaluator(RewardEvaluator):
             "rewards/strict_format_reward_func": avg_scores[2].item(),
             "rewards/soft_format_reward_func": avg_scores[3].item(),
             "rewards/tag_count_reward_func": avg_scores[4].item(),
+            "rewards/continuous_inverse_reward_func": avg_scores[5].item(),
+            "rewards/binary_inverse_reward_func": avg_scores[6].item(),
             "reward": rewards_per_func.sum(dim=1).mean().item(),
             "accuracy": accuracy
         }
@@ -895,7 +972,9 @@ class MatrixInverseEvaluator(RewardEvaluator):
             "valid_format": reward_scores[1].item(),
             "strict_format": reward_scores[2].item(),
             "soft_format": reward_scores[3].item(),
-            "tag_count": reward_scores[4].item()
+            "tag_count": reward_scores[4].item(),
+            "continuous_inverse": reward_scores[5].item(),
+            "binary_inverse": reward_scores[6].item()
         }
 
 

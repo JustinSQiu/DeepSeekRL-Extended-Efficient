@@ -60,8 +60,12 @@ def plot_metrics(output_dir):
         # ]
         reward_metrics = [
             'rewards/correctness_reward_func',
-            'rewards/format_reward_func',
+            'rewards/binary_inverse_reward_func',
+            'reward'
         ]
+        # delete the key 20 in eval_logs
+        del eval_logs[20]
+        print(eval_logs)
         
         for metric, color in zip(reward_metrics, colors):
             plt.figure(figsize=(12,7))

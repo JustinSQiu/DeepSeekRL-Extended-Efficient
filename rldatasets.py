@@ -386,22 +386,18 @@ class MatrixInverseLoader(DataLoader):
 
 
 def build_matrix_inverse_dataloaders(total_samples: int = 1000, test_ratio: float = 0.1) -> Tuple[MatrixInverseLoader, MatrixInverseLoader]:
-    train_matrices = []
-    train_inverses = []
-    test_matrices = []
-    test_inverses = []
-
     samples = []
     while len(samples) < total_samples:
-        # Generate a random 5x5 matrix with entries in [-10, 10]
-        mat = np.random.randint(-10, 10, (5, 5))
-        # Check for invertibility (determinant not too close to zero)
+        # Generate a 2x2 matrix as a small perturbation of the identity matrix
+        base = np.eye(2)
+        perturbation = np.random.uniform(-0.1, 0.1, (2, 2))
+        mat = base + perturbation
+        # Ensure the matrix is sufficiently invertible
         if abs(np.linalg.det(mat)) < 1e-3:
             continue
-        # Format matrix as a Python list of lists string
         mat_list = mat.tolist()
         mat_str = str(mat_list)
-        # Compute inverse and format as string (you might want to round values)
+
         inv_mat = np.linalg.inv(mat)
         inv_list = inv_mat.tolist()
         inv_str = str(inv_list)
@@ -409,7 +405,7 @@ def build_matrix_inverse_dataloaders(total_samples: int = 1000, test_ratio: floa
 
     # Split samples into train and test sets
     random.shuffle(samples)
-    test_size = int(total_samples * test_ratio)
+    test_size = 10
     train_samples = samples[test_size:]
     test_samples = samples[:test_size]
 

@@ -154,6 +154,8 @@ def write_generation_log(log_data: Dict[str, Any], log_file: str) -> None:
             f.write(f"Strict Format: {gen['scores']['strict_format']}\n")
             f.write(f"Soft Format: {gen['scores']['soft_format']}\n")
             f.write(f"Tag Count: {gen['scores']['tag_count']}\n")
+            f.write(f"Continuous Inverse: {gen['scores']['continuous_inverse']}\n")
+            f.write(f"Binary Inverse: {gen['scores']['binary_inverse']}\n")
 
             f.write(f"Total Reward: {sum(gen['scores'].values())}\n\n")
 
